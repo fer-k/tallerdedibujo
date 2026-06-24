@@ -131,6 +131,7 @@ export default function Home() {
       <canvas
         ref={canvasRef}
         className="bg-white w-[90vw] h-[82vh] touch-none cursor-crosshair"
+        style={{ touchAction: "none" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}

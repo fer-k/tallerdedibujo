@@ -19,8 +19,8 @@ function getSvgPathFromStroke(stroke: number[][]): string {
   return d.join(" ");
 }
 
-const subjects = ["un gato", "la luna", "un viejo"];
-const attributes = ["melancólico", "bailando", "furioso"];
+const subjects = ["un gato", "un pulpo", "una ballena", "un pingüino", "un cocodrilo", "una tortuga", "un flamenco", "un oso hormiguero", "una rana", "un caballo", "una guitarra", "una flauta", "una batería", "un violín", "una trompeta", "un tambor", "una heladera", "un ventilador", "una licuadora", "un televisor", "una pava", "un teléfono", "una bicicleta", "un sillón", "una linterna", "un mate"];
+const attributes = ["enojado", "alegre", "melancólico", "asustado", "enamorado", "aburrido", "sorprendido", "bailando", "durmiendo", "corriendo", "volando", "jugando al fútbol", "cocinando", "cantando", "pescando", "en la playa", "en el tren", "en un auto", "en vacaciones", "en la lluvia", "en el espacio", "en el recreo", "a la medianoche", "en un cumpleaños", "en el fondo del mar", "tomando mate"];
 
 function randomPrompt(): string {
   const s = subjects[Math.floor(Math.random() * subjects.length)];

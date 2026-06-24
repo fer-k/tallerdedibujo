@@ -37,10 +37,14 @@ function randomColorPair(): [string, string] {
 }
 
 export default function Home() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Two canvas layers: committed strokes below, live stroke above
+  const committedRef = useRef<HTMLCanvasElement>(null);
+  const liveRef = useRef<HTMLCanvasElement>(null);
+
   const isDrawing = useRef(false);
   const currentPoints = useRef<Point[]>([]);
-  const snapshot = useRef<ImageData | null>(null);
+  const rafId = useRef<number | null>(null);
+  const dirty = useRef(false);
 
   const [colors, setColors] = useState<[string, string] | null>(null);
   const [activeColor, setActiveColor] = useState<string>("");
@@ -57,7 +61,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
+    const canvas = committedRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -65,20 +69,32 @@ export default function Home() {
     canvas.height = canvas.offsetHeight;
     ctx.fillStyle = "white";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Size live canvas to match
+    const live = liveRef.current;
+    if (live) {
+      live.width = canvas.width;
+      live.height = canvas.height;
+    }
   }, []);
 
-  function getPos(e: React.PointerEvent<HTMLCanvasElement>): Point {
-    const rect = canvasRef.current!.getBoundingClientRect();
+  function getPos(e: PointerEvent, canvas: HTMLCanvasElement): Point {
+    const rect = canvas.getBoundingClientRect();
     return [e.clientX - rect.left, e.clientY - rect.top, e.pressure];
   }
 
-  function drawPoints(points: Point[]) {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+  function renderLiveStroke() {
+    const live = liveRef.current;
+    if (!live) return;
+    const ctx = live.getContext("2d");
     if (!ctx) return;
 
-    const stroke = getStroke(points, {
+    ctx.clearRect(0, 0, live.width, live.height);
+
+    const pts = currentPoints.current;
+    if (pts.length === 0) return;
+
+    const stroke = getStroke(pts, {
       size: 6,
       thinning: 0.5,
       smoothing: 0.5,
@@ -90,52 +106,91 @@ export default function Home() {
     ctx.fill(path);
   }
 
+  function scheduleRender() {
+    if (dirty.current || rafId.current !== null) return;
+    dirty.current = true;
+    rafId.current = requestAnimationFrame(() => {
+      rafId.current = null;
+      dirty.current = false;
+      renderLiveStroke();
+    });
+  }
+
+  function commitStroke() {
+    const committed = committedRef.current;
+    const live = liveRef.current;
+    if (!committed || !live) return;
+    const ctx = committed.getContext("2d");
+    if (!ctx) return;
+    // Draw live layer onto committed layer, then clear live
+    ctx.drawImage(live, 0, 0);
+    const liveCtx = live.getContext("2d");
+    liveCtx?.clearRect(0, 0, live.width, live.height);
+  }
+
   function onPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
-    const canvas = canvasRef.current;
-    if (canvas) {
-      snapshot.current = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height);
-    }
     (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
-    currentPoints.current = [getPos(e)];
+    const canvas = liveRef.current!;
+    currentPoints.current = [getPos(e.nativeEvent, canvas)];
     isDrawing.current = true;
+    scheduleRender();
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
     if (!isDrawing.current) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    currentPoints.current = [...currentPoints.current, getPos(e)];
-    ctx.putImageData(snapshot.current!, 0, 0);
-    drawPoints(currentPoints.current);
+    const canvas = liveRef.current!;
+    // Collect coalesced events for full Apple Pencil resolution
+    const events = e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent];
+    for (const ce of events) {
+      currentPoints.current.push(getPos(ce, canvas));
+    }
+    scheduleRender();
   }
 
-  function onPointerUp() {
+  function onPointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
     if (!isDrawing.current) return;
-    drawPoints(currentPoints.current);
-    const canvas = canvasRef.current;
-    if (canvas) {
-      snapshot.current = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height);
+    const canvas = liveRef.current!;
+    currentPoints.current.push(getPos(e.nativeEvent, canvas));
+    // Cancel any pending rAF and do a final synchronous render before committing
+    if (rafId.current !== null) {
+      cancelAnimationFrame(rafId.current);
+      rafId.current = null;
     }
+    renderLiveStroke();
+    commitStroke();
     currentPoints.current = [];
     isDrawing.current = false;
   }
+
+  function clearCanvas() {
+    const canvas = committedRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const live = liveRef.current;
+    live?.getContext("2d")?.clearRect(0, 0, live.width, live.height);
+  }
+
+  const canvasClass = "absolute inset-0 w-full h-full";
 
   return (
     <div className="flex flex-col items-center justify-center w-screen h-screen bg-gray-100 gap-4">
       {prompt && (
         <p className="text-gray-500 text-sm tracking-wide italic">{prompt}</p>
       )}
-      <canvas
-        ref={canvasRef}
-        className="bg-white w-[90vw] h-[82vh] touch-none cursor-crosshair"
-        style={{ touchAction: "none" }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-      />
+      <div className="relative w-[90vw] h-[82vh]">
+        <canvas ref={committedRef} className={canvasClass} />
+        <canvas
+          ref={liveRef}
+          className={`${canvasClass} cursor-crosshair`}
+          style={{ touchAction: "none" }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+        />
+      </div>
       <div className="absolute bottom-8 flex items-center gap-4">
         {(colors ?? []).map((color) => (
           <button
@@ -150,15 +205,7 @@ export default function Home() {
           />
         ))}
         <button
-          onClick={() => {
-            const canvas = canvasRef.current;
-            if (!canvas) return;
-            const ctx = canvas.getContext("2d");
-            if (!ctx) return;
-            ctx.fillStyle = "white";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            snapshot.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          }}
+          onClick={clearCanvas}
           className="px-3 py-1 text-sm text-gray-400 hover:text-gray-600 transition-colors"
         >
           Limpiar

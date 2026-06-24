@@ -1,65 +1,168 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { getStroke } from "perfect-freehand";
+
+type Point = [number, number, number];
+
+function getSvgPathFromStroke(stroke: number[][]): string {
+  if (!stroke.length) return "";
+  const d = stroke.reduce(
+    (acc, [x0, y0], i, arr) => {
+      const [x1, y1] = arr[(i + 1) % arr.length];
+      acc.push(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
+      return acc;
+    },
+    ["M", ...stroke[0], "Q"]
+  );
+  d.push("Z");
+  return d.join(" ");
+}
+
+const subjects = ["un gato", "la luna", "un viejo"];
+const attributes = ["melancólico", "bailando", "furioso"];
+
+function randomPrompt(): string {
+  const s = subjects[Math.floor(Math.random() * subjects.length)];
+  const a = attributes[Math.floor(Math.random() * attributes.length)];
+  return `${s} ${a}`;
+}
+
+function randomColorPair(): [string, string] {
+  const hue = Math.floor(Math.random() * 360);
+  return [
+    `hsl(${hue}, 70%, 40%)`,
+    `hsl(${(hue + 180) % 360}, 70%, 40%)`,
+  ];
+}
 
 export default function Home() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const isDrawing = useRef(false);
+  const currentPoints = useRef<Point[]>([]);
+  const snapshot = useRef<ImageData | null>(null);
+
+  const [colors, setColors] = useState<[string, string] | null>(null);
+  const [activeColor, setActiveColor] = useState<string>("");
+  const [prompt, setPrompt] = useState<string | null>(null);
+
+  const activeColorRef = useRef(activeColor);
+  useEffect(() => { activeColorRef.current = activeColor; }, [activeColor]);
+
+  useEffect(() => {
+    const pair = randomColorPair();
+    setColors(pair);
+    setActiveColor(pair[0]);
+    setPrompt(randomPrompt());
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }, []);
+
+  function getPos(e: React.PointerEvent<HTMLCanvasElement>): Point {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    return [e.clientX - rect.left, e.clientY - rect.top, e.pressure];
+  }
+
+  function drawPoints(points: Point[]) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const stroke = getStroke(points, {
+      size: 6,
+      thinning: 0.5,
+      smoothing: 0.5,
+      streamline: 0.5,
+    });
+
+    const path = new Path2D(getSvgPathFromStroke(stroke));
+    ctx.fillStyle = activeColorRef.current;
+    ctx.fill(path);
+  }
+
+  function onPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      snapshot.current = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height);
+    }
+    (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+    currentPoints.current = [getPos(e)];
+    isDrawing.current = true;
+  }
+
+  function onPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!isDrawing.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    currentPoints.current = [...currentPoints.current, getPos(e)];
+    ctx.putImageData(snapshot.current!, 0, 0);
+    drawPoints(currentPoints.current);
+  }
+
+  function onPointerUp() {
+    if (!isDrawing.current) return;
+    drawPoints(currentPoints.current);
+    const canvas = canvasRef.current;
+    if (canvas) {
+      snapshot.current = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height);
+    }
+    currentPoints.current = [];
+    isDrawing.current = false;
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="flex flex-col items-center justify-center w-screen h-screen bg-gray-100 gap-4">
+      {prompt && (
+        <p className="text-gray-500 text-sm tracking-wide italic">{prompt}</p>
+      )}
+      <canvas
+        ref={canvasRef}
+        className="bg-white w-[90vw] h-[82vh] touch-none cursor-crosshair"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+      />
+      <div className="absolute bottom-8 flex items-center gap-4">
+        {(colors ?? []).map((color) => (
+          <button
+            key={color}
+            onClick={() => setActiveColor(color)}
+            style={{ backgroundColor: color }}
+            className={`w-9 h-9 rounded-full transition-all ${
+              activeColor === color
+                ? "ring-2 ring-offset-2 ring-gray-800 scale-110"
+                : "opacity-60 hover:opacity-90"
+            }`}
+          />
+        ))}
+        <button
+          onClick={() => {
+            const canvas = canvasRef.current;
+            if (!canvas) return;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return;
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            snapshot.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          }}
+          className="px-3 py-1 text-sm text-gray-400 hover:text-gray-600 transition-colors"
+        >
+          Limpiar
+        </button>
+      </div>
     </div>
   );
 }

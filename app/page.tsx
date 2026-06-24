@@ -51,12 +51,12 @@ export default function Home() {
   const [prompt, setPrompt] = useState<string | null>(null);
 
   const activeColorRef = useRef(activeColor);
-  useEffect(() => { activeColorRef.current = activeColor; }, [activeColor]);
 
   useEffect(() => {
     const pair = randomColorPair();
     setColors(pair);
     setActiveColor(pair[0]);
+    activeColorRef.current = pair[0];
     setPrompt(randomPrompt());
   }, []);
 
@@ -155,6 +155,7 @@ export default function Home() {
     if (rafId.current !== null) {
       cancelAnimationFrame(rafId.current);
       rafId.current = null;
+      dirty.current = false;
     }
     renderLiveStroke();
     commitStroke();
@@ -195,7 +196,7 @@ export default function Home() {
         {(colors ?? []).map((color) => (
           <button
             key={color}
-            onClick={() => setActiveColor(color)}
+            onClick={() => { activeColorRef.current = color; setActiveColor(color); }}
             style={{ backgroundColor: color }}
             className={`w-9 h-9 rounded-full transition-all ${
               activeColor === color
